@@ -1,0 +1,225 @@
+#include <WiFiNINA.h>
+#include <PubSubClient.h>
+#include <Servo.h>
+
+// WiFi credentials
+//const char* ssid = "Wi-Fi 3750D7 2.4G";
+//const char* password = "Ub6b7yDs";
+
+const char* ssid = "ConnectIO";
+const char* password = "55555678";
+
+// MQTT broker
+//const char* mqtt_server = "192.168.20.19";
+const char* mqtt_server = "192.168.8.167";
+
+// Define pin connections
+const int trigPin = A0;
+const int echoPin = A1;
+const int hallPin1 = A2;
+const int hallPin2 = A3;
+const int irReceiverPin = A4;
+const int irTransmitterPin = A5;
+const int servoPin = 9;
+const int buzzerPin = A7;
+
+// Variables for the ultrasonic sensor
+long duration;
+float distance;
+
+// Servo object
+Servo myServo;
+
+
+// WiFi and MQTT clients
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+bool servoOn = false;
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(9600);
+
+  // Set pin modes
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(hallPin1, INPUT);
+  pinMode(hallPin2, INPUT);
+  pinMode(irReceiverPin, INPUT);
+  pinMode(irTransmitterPin, OUTPUT);
+  pinMode(buzzerPin, OUTPUT);
+
+  // Attach servo
+  myServo.attach(servoPin);
+
+  // Connect to WiFi
+  connectWiFi();
+
+  // Set up MQTT
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+}
+
+void loop() {
+  // Ensure MQTT is connected
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  testUltrasonic();
+  updateHallEffectSensors();
+  testIRTripwire();
+  checkBuzzer();
+
+  // Wait for a bit before the next loop
+  delay(1000);
+}
+
+void connectWiFi() {
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("WiFi connected");
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    if (client.connect("ArduinoClient")) {
+      Serial.println("connected");
+      client.subscribe("servo/control");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  String message = "";
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  
+  Serial.print("Received message on topic: ");
+  Serial.println(topic);
+  Serial.print("Message: ");
+  Serial.println(message);
+
+  if (String(topic) == "servo/control") {
+    if (message == "toggle") {
+      if (servoOn) {
+        myServo.write(0); // Rotate servo to off position (0 degrees)
+        servoOn = false;
+      } else {
+        myServo.write(90); // Rotate servo to on position (90 degrees)
+        servoOn = true;
+      }
+    }
+  }
+}
+
+void testUltrasonic() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  duration = pulseIn(echoPin, HIGH);
+  distance = (duration * 0.0343) / 2;
+
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  char distanceStr[16];
+  floatToString(distance, distanceStr, 2);
+  client.publish("sensor/distance", distanceStr);
+}
+
+void floatToString(float value, char* buffer, int decimalPlaces) {
+  int intPart = (int)value;
+  float remainder = value - intPart;
+
+  // Convert the integer part to string
+  itoa(intPart, buffer, 10);
+  strcat(buffer, "."); // Add decimal point
+
+  // Convert the decimal part to string
+  int len = strlen(buffer);
+  char temp[10];
+  sprintf(temp, "%.*f", decimalPlaces, remainder);
+  strcat(buffer, temp + 1); // Skip the leading zero
+}
+
+bool lightStatus = false;
+bool lockStatus = false;
+bool irStatus = false;
+
+void updateHallEffectSensors() {
+  int hallValue1 = analogRead(hallPin1);
+  Serial.print("Hall Effect Sensor 1 (Light): ");
+  if (hallValue1 > 512) {
+    Serial.println("Light ON");
+    lightStatus = true;
+    client.publish("sensor/light", "ON");
+  } else {
+    Serial.println("Light OFF");
+    lightStatus = false;
+    client.publish("sensor/light", "OFF");
+  }
+
+  int hallValue2 = analogRead(hallPin2);
+  Serial.print("Hall Effect Sensor 2 (Lock): ");
+  if (hallValue2 > 512) {
+    Serial.println("Unlock");
+    lockStatus = true;
+    client.publish("sensor/lock", "UNLOCK");
+  } else {
+    Serial.println("Lock");
+    lockStatus = false;
+    client.publish("sensor/lock", "LOCK");
+  }
+}
+
+void testIRTripwire() {
+  digitalWrite(irTransmitterPin, HIGH);
+  delay(10);
+  digitalWrite(irTransmitterPin, LOW);
+
+  int irState = digitalRead(irReceiverPin);
+  Serial.print("IR Tripwire: ");
+  if (irState == HIGH) {
+    Serial.println("Key detected");
+    irStatus = true;
+    client.publish("sensor/key", "DETECTED");
+  } else {
+    Serial.println("Key not detected");
+    irStatus = false;
+    client.publish("sensor/key", "NOT DETECTED");
+  }
+}
+
+void checkBuzzer() {
+  if (distance < 50 && (lightStatus || lockStatus || irStatus)) {
+    digitalWrite(buzzerPin, HIGH);
+    client.publish("sensor/buzzer", "ON");
+  } else {
+    digitalWrite(buzzerPin, LOW);
+    client.publish("sensor/buzzer", "OFF");
+  }
+}
+
