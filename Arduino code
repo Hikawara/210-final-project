@@ -50,10 +50,7 @@ void setup() {
   pinMode(irTransmitterPin, OUTPUT);
   pinMode(buzzerPin, OUTPUT);
 
-  // Attach servo
   myServo.attach(servoPin);
-
-  // Connect to WiFi
   connectWiFi();
 
   // Set up MQTT
@@ -62,18 +59,14 @@ void setup() {
 }
 
 void loop() {
-  // Ensure MQTT is connected
   if (!client.connected()) {
     reconnect();
   }
   client.loop();
-
   testUltrasonic();
   updateHallEffectSensors();
   testIRTripwire();
   checkBuzzer();
-
-  // Wait for a bit before the next loop
   delay(1000);
 }
 
@@ -175,7 +168,7 @@ void updateHallEffectSensors() {
   if (hallValue1 > 512) {
     Serial.println("Light ON");
     lightStatus = true;
-    client.publish("sensor/light", "ON");
+    client.publish("sensor/light", "ALERT: ON");
   } else {
     Serial.println("Light OFF");
     lightStatus = false;
@@ -187,7 +180,7 @@ void updateHallEffectSensors() {
   if (hallValue2 > 512) {
     Serial.println("Unlock");
     lockStatus = true;
-    client.publish("sensor/lock", "UNLOCK");
+    client.publish("sensor/lock", "ALERT: UNLOCKED");
   } else {
     Serial.println("Lock");
     lockStatus = false;
@@ -205,11 +198,11 @@ void testIRTripwire() {
   if (irState == HIGH) {
     Serial.println("Key detected");
     irStatus = true;
-    client.publish("sensor/key", "DETECTED");
+    client.publish("sensor/key", "ALERT: DETECTED");
   } else {
     Serial.println("Key not detected");
     irStatus = false;
-    client.publish("sensor/key", "NOT DETECTED");
+    client.publish("sensor/key", "ALERT: NOT DETECTED");
   }
 }
 
