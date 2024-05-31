@@ -1,0 +1,67 @@
+import paho.mqtt.client as mqtt
+import tkinter as tk
+
+# MQTT settings
+broker = "192.168.8.167"
+port = 1883
+
+MQTT_BROKER = "192.168.8.167"
+MQTT_PORT = 1883
+MQTT_TOPIC = "servo/control"
+
+# Function to handle received messages
+def on_message(client, userdata, msg):
+    message = msg.payload.decode()
+    topic = msg.topic
+
+    if topic == "sensor/light":
+        light_label.config(text="Light: " + message)
+    elif topic == "sensor/lock":
+        lock_label.config(text="Lock: " + message)
+    elif topic == "sensor/key":
+        key_label.config(text="Key: " + message)
+    elif topic == "sensor/buzzer":
+        buzzer_label.config(text="Buzzer: " + message)
+
+# Function to connect and subscribe to MQTT topics
+def on_connect(client, userdata, flags, rc):
+    print("Connected to broker")
+    client.subscribe("sensor/#")
+
+# Function to publish lock/unlock commands
+def send_mqtt_message(message):
+    client = mqtt.Client()
+    client.connect(MQTT_BROKER, MQTT_PORT)
+    client.publish(MQTT_TOPIC, message)
+    client.disconnect()
+
+def toggle_servo():
+    send_mqtt_message("toggle")
+
+# Create and set up MQTT client
+client = mqtt.Client()
+client.on_connect = on_connect
+client.on_message = on_message
+
+client.connect(broker, port, 60)
+client.loop_start()
+
+# Create the GUI
+root = tk.Tk()
+root.title("Smart Home Control")
+
+light_label = tk.Label(root, text="Light: N/A", font=("Helvetica", 28))
+light_label.pack(pady=10)
+
+lock_label = tk.Label(root, text="Lock: N/A", font=("Helvetica", 28))
+lock_label.pack(pady=10)
+
+key_label = tk.Label(root, text="Key: N/A", font=("Helvetica", 28))
+key_label.pack(pady=10)
+
+buzzer_label = tk.Label(root, text="Buzzer: N/A", font=("Helvetica", 28))
+buzzer_label.pack(pady=10)
+
+toggle_button = tk.Button(root, text="Lock/Unlock Door", font=("Helvetica", 28), command=toggle_servo)
+toggle_button.pack()
+root.mainloop()
